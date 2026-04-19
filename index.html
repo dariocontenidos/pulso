@@ -92,6 +92,7 @@ input:focus{border-color:var(--accent);}
 .sp-title{font-family:'Playfair Display',serif;font-size:52px;font-weight:700;color:#EDE8DC;letter-spacing:.1em;opacity:0;animation:spFadeUp .7s ease .7s forwards;}
 .sp-title em{color:var(--gold);font-style:normal;}
 .sp-sub{font-size:13px;color:rgba(237,232,220,.55);letter-spacing:.08em;opacity:0;animation:spFadeUp .7s ease 1s forwards;}
+.sp-sync{font-size:11px;color:rgba(201,168,76,.7);letter-spacing:.06em;opacity:0;animation:spFadeUp .5s ease 1.4s forwards;}
 @keyframes spFade{to{opacity:1;}}
 @keyframes spFadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
 
@@ -184,6 +185,11 @@ input:focus{border-color:var(--accent);}
 .modal-sh{background:var(--card);border-radius:var(--r2) var(--r2) 0 0;padding:26px 22px calc(22px + env(safe-area-inset-bottom));width:100%;max-width:430px;display:flex;flex-direction:column;gap:18px;}
 .modal-handle{width:34px;height:4px;background:var(--border);border-radius:4px;margin:-10px auto 4px;}
 
+/* SYNC BADGE */
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-left:5px;animation:pulse 2s infinite;}
+.sync-dot.off{background:var(--text3);animation:none;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
 /* UTILS */
 .row{display:flex;}
 .row.jb{justify-content:space-between;}
@@ -214,6 +220,7 @@ input:focus{border-color:var(--accent);}
   </svg>
   <div class="sp-title">PU<em>L</em>SO</div>
   <div class="sp-sub">Tu evolución, semana a semana.</div>
+  <div class="sp-sync" id="sp-sync-lbl">Sincronizando...</div>
 </div>
 <style>
 @keyframes drawPulse{to{stroke-dashoffset:0;}}
@@ -235,6 +242,7 @@ input:focus{border-color:var(--accent);}
       <p class="muted sm">Dos minutos por día. Nada más.</p>
     </div>
     <button class="btn btn-dark btn-full" onclick="obNext(1)">Empezar mi proceso →</button>
+    <button class="btn btn-ol btn-full" style="margin-top:-8px;" onclick="showImportModal()">¿Ya tenés un código? Importar datos</button>
   </div>
 
   <div class="ob-step" id="obs2">
@@ -436,6 +444,21 @@ input:focus{border-color:var(--accent);}
   </div>
 </div>
 
+<!-- ╔══════════ MODAL IMPORTAR ══════════╗ -->
+<div class="modal hidden" id="importmodal" onclick="event.stopPropagation()">
+  <div class="modal-sh">
+    <div class="modal-handle"></div>
+    <div><h2>🔗 Importar datos</h2><p class="muted sm" style="margin-top:5px;">Ingresá el código de sincronización de tu otro dispositivo.</p></div>
+    <div class="ig">
+      <label>Tu código de sincronización</label>
+      <input type="text" id="import-code" placeholder="p_abc123..." style="font-family:'DM Mono';font-size:13px;">
+    </div>
+    <div id="import-msg" class="xs muted tc"></div>
+    <button class="btn btn-dark btn-full" onclick="doImport()">Importar mis datos</button>
+    <button class="btn btn-ol btn-full" onclick="document.getElementById('importmodal').classList.add('hidden')">Cancelar</button>
+  </div>
+</div>
+
 <!-- ╔══════════ BOTTOM NAV ══════════╗ -->
 <nav id="bnav" class="hidden">
   <div class="ni active" id="ni-home" onclick="nav('home')"><div class="ico">🏠</div><div class="nlbl">Inicio</div></div>
@@ -449,6 +472,66 @@ input:focus{border-color:var(--accent);}
 <script>
 'use strict';
 const SK = 'pulso_v1';
+const SK_UID = 'pulso_uid';
+
+// ╔══════════════════════════════════════════╗
+// ║  🔥 FIREBASE CONFIG                      ║
+// ║  Reemplazá esta URL con la tuya          ║
+// ╚══════════════════════════════════════════╝
+const FB_URL = 'https://pulso-app-bb75c-default-rtdb.firebaseio.com/';
+// ^^^^ ÚNICO LUGAR QUE NECESITÁS EDITAR ^^^^
+
+// ═══════════ FIREBASE HELPERS ═══════════
+function getUID() {
+  let uid = localStorage.getItem(SK_UID);
+  if (!uid) {
+    uid = 'p_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    localStorage.setItem(SK_UID, uid);
+  }
+  return uid;
+}
+
+async function fbSave(data) {
+  if (!FB_URL || FB_URL.includes('TU-PROYECTO')) return;
+  try {
+    await fetch(`${FB_URL}/pulso/${getUID()}.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  } catch(e) { /* sin conexión: ok, ya está guardado en local */ }
+}
+
+async function fbLoad(uid) {
+  if (!FB_URL || FB_URL.includes('TU-PROYECTO')) return null;
+  try {
+    const r = await fetch(`${FB_URL}/pulso/${uid}.json`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.user) ? d : null;
+  } catch(e) { return null; }
+}
+
+function showImportModal() {
+  document.getElementById('importmodal').classList.remove('hidden');
+}
+
+async function doImport() {
+  const code = document.getElementById('import-code').value.trim();
+  const msg = document.getElementById('import-msg');
+  if (!code) { msg.textContent = 'Ingresá un código.'; return; }
+  msg.textContent = 'Buscando tus datos...';
+  const data = await fbLoad(code);
+  if (data) {
+    localStorage.setItem(SK_UID, code);
+    S = data;
+    save();
+    document.getElementById('importmodal').classList.add('hidden');
+    nav('home');
+  } else {
+    msg.textContent = '❌ No se encontraron datos con ese código. Verificalo.';
+  }
+}
 
 // ═══════════ PLAN DE PESO ═══════════
 const PLAN = [
@@ -562,7 +645,10 @@ let sex = 'M', cq = 0, cans = [], cblock = 1, cdt = 'A', cqs = [], cdims = [];
 let wChart = null;
 
 function load(){try{const r=localStorage.getItem(SK);if(r)S=JSON.parse(r);}catch(e){}}
-function save(){localStorage.setItem(SK,JSON.stringify(S));}
+function save(){
+  localStorage.setItem(SK,JSON.stringify(S));
+  fbSave(S); // sincroniza con Firebase en background
+}
 
 // ═══════════ UTILS ═══════════
 function today(){return new Date().toISOString().split('T')[0];}
@@ -615,13 +701,29 @@ function nav(pg){
   if(pg==='checkin')initCI();
 }
 
-// ═══════════ INIT ═══════════
-function init(){
-  load();
-  setTimeout(()=>{
-    if(S.user){nav('home');}
-    else{nav('onboarding');document.getElementById('ob-sd').value=today();}
-  },2600);
+// ═══════════ INIT (con Firebase sync) ═══════════
+async function init(){
+  load(); // carga local inmediata
+
+  const syncLbl = document.getElementById('sp-sync-lbl');
+
+  // Corre en paralelo: timer splash + fetch Firebase
+  const [_, fbData] = await Promise.all([
+    new Promise(r => setTimeout(r, 2600)),
+    S.user ? Promise.resolve(null) : fbLoad(getUID())
+  ]);
+
+  // Si no había datos locales pero sí en Firebase, los restaura
+  if (!S.user && fbData) {
+    S = fbData;
+    save();
+    if (syncLbl) syncLbl.textContent = '✓ Datos sincronizados';
+  } else {
+    if (syncLbl) syncLbl.textContent = S.user ? '✓ Listo' : '';
+  }
+
+  if(S.user){nav('home');}
+  else{nav('onboarding');document.getElementById('ob-sd').value=today();}
 }
 
 // ═══════════ ONBOARDING ═══════════
@@ -667,11 +769,13 @@ function renderHome(){
   const totPct=Math.max(0,Math.min(100,((S.user.sw-lw)/(S.user.sw-S.user.gw))*100));
   const h=new Date().getHours();
   const g=h<12?'Buenos días':h<19?'Buenas tardes':'Buenas noches';
+  const fbOk = !FB_URL.includes('TU-PROYECTO');
   document.getElementById('h-wlbl').textContent='SEM '+wi.w;
   document.getElementById('h-cnt').innerHTML=`
     <div class="col g8">
       <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:600;">${g},<br>${S.user.name}.</div>
       <div class="week-badge">🔷 Bloque ${wi.b} · ${BNAMES[wi.b]}</div>
+      ${fbOk?'':'<div class="xs" style="color:var(--warn);background:#fff3ee;padding:7px 10px;border-radius:8px;margin-top:2px;">⚠️ Firebase no configurado — los datos solo se guardan en este dispositivo.</div>'}
     </div>
     <div class="card col g12">
       <div class="row jb ac">
@@ -1013,11 +1117,17 @@ function renderHistory(){
 function renderProfile(){
   if(!S.user)return;
   const u=S.user,lw=latestW(),lost=u.sw-lw,pct=Math.max(0,((lost/(u.sw-u.gw))*100)).toFixed(1),str=streak();
+  const uid=getUID();
+  const fbOk = !FB_URL.includes('TU-PROYECTO');
   document.getElementById('pf-cnt').innerHTML=`
     <div class="card tc col g8" style="align-items:center;">
       <div style="width:68px;height:68px;background:var(--dark);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display';font-size:26px;font-weight:700;color:var(--gold);">${u.name.charAt(0).toUpperCase()}</div>
       <h2>${u.name}</h2>
       <div class="sm muted">${u.age} años · ${u.ht} cm · Proceso activo</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:${fbOk?'var(--accent)':'var(--warn)'};">
+        <span class="sync-dot ${fbOk?'':'off'}"></span>
+        ${fbOk?'Sincronización activa':'Sin sincronización — configurá Firebase'}
+      </div>
     </div>
     <div class="card col g12">
       <div class="lbl">Mi objetivo</div>
@@ -1034,6 +1144,15 @@ function renderProfile(){
       <div class="kpi"><div class="lbl">Bajado</div><div class="kpi-v" style="color:var(--accent);">${Math.max(0,lost).toFixed(1)}</div><div class="xs muted">kg</div></div>
       <div class="kpi"><div class="lbl">Racha</div><div class="kpi-v" style="color:var(--gold);">${str} 🔥</div></div>
     </div>
+
+    <!-- SYNC SECTION -->
+    <div class="card col g12" style="border:1.5px solid var(--border);">
+      <div class="lbl" style="color:var(--gold);">🔗 Código de sincronización</div>
+      <div style="background:var(--bg);border-radius:10px;padding:12px;font-family:'DM Mono';font-size:12px;word-break:break-all;color:var(--text2);">${uid}</div>
+      <div class="xs muted">Copiá este código para acceder a tus datos desde otro dispositivo. Funciona como tu "contraseña" personal de PULSO.</div>
+      <button class="btn btn-ol btn-full" onclick="navigator.clipboard.writeText('${uid}').then(()=>alert('✅ Código copiado al portapapeles'))">Copiar código</button>
+    </div>
+
     <div class="card col g8">
       <div class="lbl">Recordatorios sugeridos</div>
       <div class="row jb ac" style="padding:7px 0;border-bottom:1px solid var(--border);">
@@ -1045,7 +1164,7 @@ function renderProfile(){
         <div class="xs muted">Sáb 9:00</div>
       </div>
     </div>
-    <button class="btn btn-ol-danger btn-full" onclick="if(confirm('¿Borrar todos los datos de PULSO? No se puede deshacer.')){localStorage.removeItem('${SK}');location.reload();}">Reiniciar PULSO</button>`;
+    <button class="btn btn-ol-danger btn-full" onclick="if(confirm('¿Borrar todos los datos de PULSO? No se puede deshacer.')){localStorage.removeItem('${SK}');localStorage.removeItem('${SK_UID}');location.reload();}">Reiniciar PULSO</button>`;
 }
 
 // ═══════════ START ═══════════
